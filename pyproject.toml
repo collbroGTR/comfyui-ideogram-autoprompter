@@ -9,7 +9,7 @@ dependencies = ["pillow>=10.3.0", "requests", "transformers>=4.57.0", "accelerat
 Repository = "https://github.com/collbroGTR/comfyui-ideogram-autoprompter"
 
 [tool.comfy]
-PublisherId = "collbroGTR"
+PublisherId = "collbrogtr"
 DisplayName = "ComfyUI-Ideogram-Autoprompter"
 
 [tool.setuptools]
