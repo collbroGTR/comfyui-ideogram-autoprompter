@@ -13,7 +13,7 @@ from aiohttp import web
 from PIL import Image
 from server import PromptServer
 
-from . import llm_gemini, llm_local, llm_ollama
+from . import llm_gemini, llm_local, llm_ollama, llm_openrouter
 
 routes = PromptServer.instance.routes
 
@@ -56,6 +56,19 @@ async def ollama_models(request):
         return web.json_response({"error": str(e)}, status=400)
 
 
+@routes.post("/ideogram_autoprompter/openrouter/models")
+async def openrouter_models(request):
+    try:
+        data = await request.json()
+        loop = asyncio.get_event_loop()
+        models = await loop.run_in_executor(
+            None, llm_openrouter.list_models, (data.get("api_key") or "").strip()
+        )
+        return web.json_response({"models": models})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
 @routes.post("/ideogram_autoprompter/generate")
 async def generate(request):
     try:
@@ -86,6 +99,14 @@ async def generate(request):
                     data.get("model") or "",
                     idea, pil_image, density=density, think=think,
                     unload_after=bool(data.get("unload_after", True)),
+                ),
+            )
+        elif backend == "openrouter":
+            caption = await loop.run_in_executor(
+                None, lambda: llm_openrouter.generate(
+                    (data.get("api_key") or "").strip(),
+                    data.get("model") or "",
+                    idea, pil_image, density=density,
                 ),
             )
         else:

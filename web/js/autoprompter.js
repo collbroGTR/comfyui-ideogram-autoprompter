@@ -116,8 +116,9 @@ app.registerExtension({
       // AI state (serialized to ai_state, minus the API key) + transient image/key.
       node._ai = { backend: "local", idea: "", local_model: DEFAULT_LOCAL_MODEL,
         gemini_model: "", unload_after: true, four_bit: false, density: "normal", attn: "auto",
-        ollama_host: DEFAULT_OLLAMA_HOST, ollama_model: "", think: false };
+        ollama_host: DEFAULT_OLLAMA_HOST, ollama_model: "", openrouter_model: "", think: false };
       node._apiKey = "";       // session only — never serialized
+      node._orKey = "";        // OpenRouter key — session only, never serialized
       node._image = null;      // { b64, url } — session only
       node._gening = false;
 
@@ -139,7 +140,9 @@ app.registerExtension({
       const ollamaBtn = document.createElement("button"); ollamaBtn.className = "ideoap-btn"; ollamaBtn.textContent = "Ollama";
       ollamaBtn.title = "Ollama (llama.cpp / GGUF) — fastest on most GPUs. Needs `ollama serve` running.";
       const gemBtn = document.createElement("button"); gemBtn.className = "ideoap-btn"; gemBtn.textContent = "Gemini";
-      backendRow.appendChild(localBtn); backendRow.appendChild(ollamaBtn); backendRow.appendChild(gemBtn);
+      const orBtn = document.createElement("button"); orBtn.className = "ideoap-btn"; orBtn.textContent = "OpenRouter";
+      orBtn.title = "OpenRouter — one key, hundreds of hosted vision models (GPT-4o, Claude, Gemini, Qwen-VL…).";
+      backendRow.appendChild(localBtn); backendRow.appendChild(ollamaBtn); backendRow.appendChild(gemBtn); backendRow.appendChild(orBtn);
       // detail / object-density segmented control
       const densSpacer = document.createElement("span"); densSpacer.style.flex = "1"; backendRow.appendChild(densSpacer);
       const densLbl = document.createElement("span"); densLbl.className = "ideoap-lbl"; densLbl.textContent = "Detail";
@@ -209,6 +212,24 @@ app.registerExtension({
       ollamaHint.style.cssText = "color:#8a8a8a; font:11px ui-sans-serif,system-ui,sans-serif;";
       ollamaHint.innerHTML = 'Fastest engine. Start it with <span style="color:#fff;">ollama serve</span> and pull a vision model, e.g. <span style="color:#fff;">ollama pull qwen2.5vl</span>.';
       aiBar.appendChild(ollamaHint);
+
+      // openrouter row (api key + fetch + model select)
+      const orRow = document.createElement("div");
+      orRow.className = "ideoap-row";
+      const orKeyInput = document.createElement("input");
+      orKeyInput.className = "ideoap-input"; orKeyInput.type = "password";
+      orKeyInput.placeholder = "OpenRouter API key"; orKeyInput.style.flex = "1"; orKeyInput.style.minWidth = "120px";
+      const orFetchBtn = document.createElement("button"); orFetchBtn.className = "ideoap-btn"; orFetchBtn.textContent = "Fetch models";
+      const orSelect = document.createElement("select"); orSelect.className = "ideoap-select";
+      const orph = document.createElement("option"); orph.value = ""; orph.textContent = "— models —"; orSelect.appendChild(orph);
+      orRow.appendChild(orKeyInput); orRow.appendChild(orFetchBtn); orRow.appendChild(orSelect);
+      aiBar.appendChild(orRow);
+
+      const orHint = document.createElement("div");
+      orHint.className = "ideoap-status";
+      orHint.style.cssText = "color:#8a8a8a; font:11px ui-sans-serif,system-ui,sans-serif;";
+      orHint.innerHTML = 'Get a key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" style="color:#fff; text-decoration:underline;">openrouter.ai/keys</a>. Fetch lists vision-capable models only.';
+      aiBar.appendChild(orHint);
 
       // local-only row (model id + 4-bit)
       const localRow = document.createElement("div");
@@ -810,17 +831,20 @@ app.registerExtension({
       }
       function refreshBackendUI() {
         const b = node._ai.backend;
-        const isGem = b === "gemini", isOllama = b === "ollama", isLocal = b === "local";
+        const isGem = b === "gemini", isOllama = b === "ollama", isLocal = b === "local", isOr = b === "openrouter";
         localBtn.classList.toggle("active", isLocal);
         ollamaBtn.classList.toggle("active", isOllama);
         gemBtn.classList.toggle("active", isGem);
+        orBtn.classList.toggle("active", isOr);
         gemRow.style.display = isGem ? "" : "none";
         ollamaRow.style.display = isOllama ? "" : "none";
         ollamaHint.style.display = isOllama ? "" : "none";
+        orRow.style.display = isOr ? "" : "none";
+        orHint.style.display = isOr ? "" : "none";
         localRow.style.display = isLocal ? "" : "none";
         // unload-after applies to local (free VRAM) and ollama (keep_alive:0); think to both
         unloadWrap.style.display = (isLocal || isOllama) ? "" : "none";
-        thinkWrap.style.display = isGem ? "none" : "";
+        thinkWrap.style.display = (isGem || isOr) ? "none" : "";
         refreshKeyHint();
         requestAnimationFrame(fitNode);
       }
@@ -828,9 +852,11 @@ app.registerExtension({
       localBtn.addEventListener("mousedown", (e) => e.stopPropagation());
       ollamaBtn.addEventListener("mousedown", (e) => e.stopPropagation());
       gemBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+      orBtn.addEventListener("mousedown", (e) => e.stopPropagation());
       localBtn.addEventListener("click", () => setBackend("local"));
       ollamaBtn.addEventListener("click", () => setBackend("ollama"));
       gemBtn.addEventListener("click", () => setBackend("gemini"));
+      orBtn.addEventListener("click", () => setBackend("openrouter"));
 
       function refreshDensityUI() {
         const high = node._ai.density === "high";
@@ -861,6 +887,10 @@ app.registerExtension({
       hostInput.addEventListener("input", () => { node._ai.ollama_host = hostInput.value; serializeAi(); });
       stopProp(ollamaSelect);
       ollamaSelect.addEventListener("change", () => { node._ai.ollama_model = ollamaSelect.value; serializeAi(); });
+      stopProp(orKeyInput);
+      orKeyInput.addEventListener("input", () => { node._orKey = orKeyInput.value; });   // not serialized
+      stopProp(orSelect);
+      orSelect.addEventListener("change", () => { node._ai.openrouter_model = orSelect.value; serializeAi(); });
       stopProp(thinkCb);
       thinkCb.addEventListener("change", () => { node._ai.think = thinkCb.checked; serializeAi(); });
 
@@ -969,6 +999,33 @@ app.registerExtension({
         finally { ollamaFetchBtn.disabled = false; }
       });
 
+      stopProp(orFetchBtn);
+      orFetchBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+      orFetchBtn.addEventListener("click", async () => {
+        if (!node._orKey) { setStatus("Enter an OpenRouter API key first.", true); return; }
+        orFetchBtn.disabled = true; setStatus("Fetching OpenRouter models…", false, true);
+        try {
+          const r = await fetch("/ideogram_autoprompter/openrouter/models", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: node._orKey }),
+          });
+          const data = await r.json();
+          if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
+          orSelect.innerHTML = "";
+          for (const m of data.models) {
+            const o = document.createElement("option");
+            o.value = m.id; o.textContent = m.display_name || m.id;
+            orSelect.appendChild(o);
+          }
+          if (node._ai.openrouter_model) orSelect.value = node._ai.openrouter_model;
+          if (!orSelect.value && orSelect.options.length) {
+            orSelect.selectedIndex = 0; node._ai.openrouter_model = orSelect.value; serializeAi();
+          }
+          setStatus(data.models.length + " vision models loaded.");
+        } catch (e) { setStatus("Error: " + e.message, true); }
+        finally { orFetchBtn.disabled = false; }
+      });
+
       generateBtn.addEventListener("mousedown", (e) => e.stopPropagation());
       generateBtn.addEventListener("click", async () => {
         if (node._gening) return;
@@ -980,17 +1037,21 @@ app.registerExtension({
         if (backend === "ollama" && !ollamaSelect.value) {
           setStatus("Fetch and select an Ollama model.", true); return;
         }
+        if (backend === "openrouter" && (!node._orKey || !orSelect.value)) {
+          setStatus("Set an OpenRouter key and fetch/select a model.", true); return;
+        }
         setGenBusy(true); setStatus("Starting…", false, true);
         let poll = backend === "local" ? setInterval(pollStatus, 1200) : null;
         try {
           const model = backend === "gemini" ? modelSelect.value
             : backend === "ollama" ? ollamaSelect.value
+            : backend === "openrouter" ? orSelect.value
             : localModelInput.value.trim();
           const payload = {
             backend, idea: ideaTa.value,
             image_b64: node._image ? node._image.b64 : null,
             model,
-            api_key: node._apiKey || "",
+            api_key: backend === "openrouter" ? (node._orKey || "") : (node._apiKey || ""),
             host: node._ai.ollama_host || DEFAULT_OLLAMA_HOST,
             four_bit: node._ai.four_bit, unload_after: node._ai.unload_after,
             density: node._ai.density, attn: node._ai.attn, think: node._ai.think,
@@ -1166,6 +1227,15 @@ app.registerExtension({
             ollamaSelect.appendChild(o);
           }
           ollamaSelect.value = node._ai.ollama_model;
+        }
+        if (node._ai.openrouter_model) {
+          const exists = Array.from(orSelect.options).some((o) => o.value === node._ai.openrouter_model);
+          if (!exists) {
+            const o = document.createElement("option");
+            o.value = node._ai.openrouter_model; o.textContent = node._ai.openrouter_model;
+            orSelect.appendChild(o);
+          }
+          orSelect.value = node._ai.openrouter_model;
         }
         refreshDensityUI();
         refreshBackendUI();
